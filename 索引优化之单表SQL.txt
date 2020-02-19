@@ -1,0 +1,76 @@
+
+create table if not exists article(
+id int(10) unsigned not null primary key auto_increment,
+author_id int(10) unsigned not null,
+category_id int(10) unsigned not null,
+views int(10) unsigned not null,
+comments int(10) unsigned not null,
+title varbinary(255) not null,
+content text not null
+);
+
+insert into article(author_id,category_id,views,comments,title,content) values
+(1,1,1,1,'1','1'),
+(2,2,2,2,'2','2'),
+(1,1,3,3,'3','3');
+
+select * from article;
+
+/***************************以下为案例********************************/
+#查询category_id为1且comments大于1的情况下，views最多的author_id。
+explain select id,author_id 
+from article 
+where category_id = 1 and comments > 1 
+order by views desc 
+limit 1;
+
+--mysql输出结果如下：很显然，type为all，且extra中有using filesort，必须进行优化！
++----+-------------+---------+------+---------------+------+---------+------+------+-----------------------------+
+| id | select_type | table   | type | possible_keys | key  | key_len | ref  | rows | Extra                       |
++----+-------------+---------+------+---------------+------+---------+------+------+-----------------------------+
+|  1 | SIMPLE      | article | ALL  | NULL          | NULL | NULL    | NULL |    3 | Using where; Using filesort |
++----+-------------+---------+------+---------------+------+---------+------+------+-----------------------------+
+# 查看article表中的所有索引
+show index from article;
++---------+------------+----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| Table   | Non_unique | Key_name | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment |
++---------+------------+----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| article |          0 | PRIMARY  |            1 | id          | A         |           3 |     NULL | NULL   |      | BTREE      |         |               |
++---------+------------+----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+
+#开始优化：
+#1.1 新建索引
+alter table article add index idx_article_ccv(category_id,comments,views);
+create index idx_article_ccv on article(category_id,comments,views);
+# 查看article表中的所有索引
+show index from article;
++---------+------------+-----------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| Table   | Non_unique | Key_name        | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment |
++---------+------------+-----------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| article |          0 | PRIMARY         |            1 | id          | A         |           3 |     NULL | NULL   |      | BTREE      |         |               |
+| article |          1 | idx_article_ccv |            1 | category_id | A         |           3 |     NULL | NULL   |      | BTREE      |         |               |
+| article |          1 | idx_article_ccv |            2 | comments    | A         |           3 |     NULL | NULL   |      | BTREE      |         |               |
+| article |          1 | idx_article_ccv |            3 | views       | A         |           3 |     NULL | NULL   |      | BTREE      |         |               |
++---------+------------+-----------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+#第一次优化后再进行查询
+explain select id,author_id  from article  where category_id = 1 and comments > 1  order by views desc  limit 1;
++----+-------------+---------+-------+-----------------+-----------------+---------+------+------+-----------------------------+
+| id | select_type | table   | type  | possible_keys   | key             | key_len | ref  | rows | Extra                       |
++----+-------------+---------+-------+-----------------+-----------------+---------+------+------+-----------------------------+
+|  1 | SIMPLE      | article | range | idx_article_ccv | idx_article_ccv | 8       | NULL |    1 | Using where; Using filesort |
++----+-------------+---------+-------+-----------------+-----------------+---------+------+------+-----------------------------+
+# 结论：利用索引查询和排序的顺序是按照建索引的字段顺序。range类型查询字段后的索引失效，即无法利用索引再对后面的views进行检索，产生文件排序。
+
+#1.2 删除不合适的索引，重新建立索引
+drop index idx_article_ccv on article;
+create index idx_article_cv on article(category_id,views);
+#第二次优化后再进行查询
+explain select id,author_id  from article  where category_id = 1 and comments > 1  order by views desc  limit 1;
++----+-------------+---------+------+----------------+----------------+---------+-------+------+-------------+
+| id | select_type | table   | type | possible_keys  | key            | key_len | ref   | rows | Extra       |
++----+-------------+---------+------+----------------+----------------+---------+-------+------+-------------+
+|  1 | SIMPLE      | article | ref  | idx_article_cv | idx_article_cv | 4       | const |    2 | Using where |
++----+-------------+---------+------+----------------+----------------+---------+-------+------+-------------+
+#结论：type为ref，且extra中也没有filesort，结果很理想。
+
+

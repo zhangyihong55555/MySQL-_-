@@ -1,0 +1,191 @@
+create table if not exists staffs(
+id int primary key auto_increment,
+name varchar(24) not null default '' comment '姓名',
+age int not null default 0 comment '年龄',
+pos varchar(20) not null default '' comment '职位',
+addTime timestamp not null default current_timestamp comment '入职时间'
+) charset utf8 comment '员工记录表';
+
+insert into staffs(name, age, pos, addTime) values('z3',22,'manager',now());
+insert into staffs(name, age, pos, addTime) values('July',23,'dev',now());
+insert into staffs(name, age, pos, addTime) values('2000',23,'dev',now());
+
+select * from staffs;
+
+alter table staffs add index idx_staffs_nameAgePos(name,age,pos);
+
+
+# (1)全值匹配我最爱
+# (2)最佳左前缀法则：如果索引了多列，查询从索引的最左前列开始并且不跳过索引中的列。即：“带头大哥不能死，中间兄弟不能断”。
+# (3)索引列上少计算（函数、类型转换等），会导致索引失效而转向全表扫描。
+# (4)范围之后全失效(between and，大于，like)
+# (5)尽量使用覆盖索引，减少select *
+# (6)使用不等于（!= 或 <>）的时候无法使用索引导致全表扫描
+# (7)is null, is not null 无法使用索引
+# (8)like % 加右边：like以通配符开头（'%abc...'），索引失效
+# (9)字符串(varchar类型)不加单引号，索引失效，与第(3)条相呼应
+# (10)or用来连接时，索引失效
+
+# (1)全值匹配我最爱
+explain select * from staffs where name = 'July';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref   | rows | Extra       |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 74      | const |    1 | Using where |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+
+explain select * from staffs where name = 'July' and age = 23;
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref         | rows | Extra       |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------+------+-------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 78      | const,const |    1 | Using where |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------+------+-------------+
+
+explain select * from staffs where name = 'July' and age = 23 and pos = 'dev';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref               | rows | Extra       |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------------+------+-------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 140     | const,const,const |    1 | Using where |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------------+------+-------------+
+
+# (2)最佳左前缀法则：如果索引了多列，查询从索引的最左前列开始并且不跳过索引中的列。即：“带头大哥不能死，中间兄弟不能断”。
+explain select * from staffs where pos = 'dev';
+explain select * from staffs where age = 23 and pos = 'dev';
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | NULL          | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+
+explain select * from staffs where name = 'July' and pos = 'dev';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref   | rows | Extra       |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 74      | const |    1 | Using where |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+
+
+# (3)索引列上少计算（函数、类型转换等），会导致索引失效而转向全表扫描。
+explain select * from staffs where name = 'July';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref   | rows | Extra       |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 74      | const |    1 | Using where |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+
+explain select * from staffs where left(name,4) = 'July';
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | NULL          | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+
+# (4)范围之后全失效
+explain select * from staffs where name = 'July' and age > 23 and pos = 'dev';
++----+-------------+--------+-------+-----------------------+-----------------------+---------+------+------+-------------+
+| id | select_type | table  | type  | possible_keys         | key                   | key_len | ref  | rows | Extra       |
++----+-------------+--------+-------+-----------------------+-----------------------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | range | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 78      | NULL |    1 | Using where |
++----+-------------+--------+-------+-----------------------+-----------------------+---------+------+------+-------------+
+
+# (5)尽量使用覆盖索引，减少select *
+explain select name,age,pos from staffs where name = 'July' and age = 23 and pos = 'dev';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------------+------+--------------------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref               | rows | Extra                    |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------------+------+--------------------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 140     | const,const,const |    1 | Using where; Using index |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------------+------+--------------------------+
+
+explain select name,age,pos from staffs where name = 'July' and age > 23 and pos = 'dev';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+--------------------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref   | rows | Extra                    |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+--------------------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 74      | const |    1 | Using where; Using index |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+--------------------------+
+
+explain select name from staffs where name = 'July' and age = 23;
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------+------+--------------------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref         | rows | Extra                    |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------+------+--------------------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 78      | const,const |    1 | Using where; Using index |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------------+------+--------------------------+
+
+# (6)使用不等于（!= 或 <>）的时候无法使用索引导致全表扫描
+explain select * from staffs where name != 'July';
+explain select * from staffs where name <> 'July';
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | idx_staffs_nameAgePos | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+
+# (7)is null, is not null 无法使用索引
+explain select * from staffs where name is null;
++----+-------------+-------+------+---------------+------+---------+------+------+------------------+
+| id | select_type | table | type | possible_keys | key  | key_len | ref  | rows | Extra            |
++----+-------------+-------+------+---------------+------+---------+------+------+------------------+
+|  1 | SIMPLE      | NULL  | NULL | NULL          | NULL | NULL    | NULL | NULL | Impossible WHERE |
++----+-------------+-------+------+---------------+------+---------+------+------+------------------+
+
+explain select * from staffs where name is not null;
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | idx_staffs_nameAgePos | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+
+# (8)like % 加右边：like以通配符开头（'%abc...'），索引失效
+explain select * from staffs where name like '%July';
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | NULL          | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+
+explain select * from staffs where name like '%July%';
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | NULL          | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+---------------+------+---------+------+------+-------------+
+explain select * from staffs where name like 'July%';
++----+-------------+--------+-------+-----------------------+-----------------------+---------+------+------+-------------+
+| id | select_type | table  | type  | possible_keys         | key                   | key_len | ref  | rows | Extra       |
++----+-------------+--------+-------+-----------------------+-----------------------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | range | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 74      | NULL |    1 | Using where |
++----+-------------+--------+-------+-----------------------+-----------------------+---------+------+------+-------------+
+# 如果like两边都有 % ，可以使用覆盖索引来避免索引失效
+explain select name,age,pos from staffs where name like '%July%';
++----+-------------+--------+-------+---------------+-----------------------+---------+------+------+--------------------------+
+| id | select_type | table  | type  | possible_keys | key                   | key_len | ref  | rows | Extra                    |
++----+-------------+--------+-------+---------------+-----------------------+---------+------+------+--------------------------+
+|  1 | SIMPLE      | staffs | index | NULL          | idx_staffs_nameAgePos | 140     | NULL |    3 | Using where; Using index |
++----+-------------+--------+-------+---------------+-----------------------+---------+------+------+--------------------------+
+
+
+# (9)字符串(varchar类型)不加单引号，索引失效，与第(3)条相呼应
+explain select * from staffs where name = '2000';
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key                   | key_len | ref   | rows | Extra       |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+|  1 | SIMPLE      | staffs | ref  | idx_staffs_nameAgePos | idx_staffs_nameAgePos | 74      | const |    1 | Using where |
++----+-------------+--------+------+-----------------------+-----------------------+---------+-------+------+-------------+
+
+explain select * from staffs where name = 2000; # MySQL底层发生隐式类型转换
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | idx_staffs_nameAgePos | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+
+
+# (10)or用来连接时，索引失效
+explain select * from staffs where name = '2000' or name = 'July';
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+| id | select_type | table  | type | possible_keys         | key  | key_len | ref  | rows | Extra       |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | staffs | ALL  | idx_staffs_nameAgePos | NULL | NULL    | NULL |    3 | Using where |
++----+-------------+--------+------+-----------------------+------+---------+------+------+-------------+
+
+
+

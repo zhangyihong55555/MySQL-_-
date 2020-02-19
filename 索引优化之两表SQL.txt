@@ -1,0 +1,98 @@
+
+create table if not exists class(
+id int(10) unsigned not null auto_increment,
+card int(10) unsigned not null,
+primary key(id)
+);
+
+create table if not exists book(
+bookid int(10) unsigned not null auto_increment,
+card int(10) unsigned not null,
+primary key(bookid)
+);
+
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+insert into class(card) values(floor(1 + (rand() * 20)));
+
+
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+insert into book(card) values(floor(1 + (rand() * 20)));
+
+
+/*********************下面开始explain分析********************/
+explain select * from class left join book on class.card = book.card;
++----+-------------+-------+------+---------------+------+---------+------+------+-------+
+| id | select_type | table | type | possible_keys | key  | key_len | ref  | rows | Extra |
++----+-------------+-------+------+---------------+------+---------+------+------+-------+
+|  1 | SIMPLE      | class | ALL  | NULL          | NULL | NULL    | NULL |   20 |       |
+|  1 | SIMPLE      | book  | ALL  | NULL          | NULL | NULL    | NULL |   20 |       |
++----+-------------+-------+------+---------------+------+---------+------+------+-------+
+#结论：type为all。
+
+# 在右表添加索引优化：
+alter table book add index Y(card);
+# 优化后：
+explain select * from class left join book on class.card = book.card;
++----+-------------+-------+------+---------------+------+---------+-------------------+------+-------------+
+| id | select_type | table | type | possible_keys | key  | key_len | ref               | rows | Extra       |
++----+-------------+-------+------+---------------+------+---------+-------------------+------+-------------+
+|  1 | SIMPLE      | class | ALL  | NULL          | NULL | NULL    | NULL              |   20 |             |
+|  1 | SIMPLE      | book  | ref  | Y             | Y    | 4       | db0218.class.card |    1 | Using index |
++----+-------------+-------+------+---------------+------+---------+-------------------+------+-------------+
+# 在左表添加索引优化：
+drop index Y on book;
+alter table class add index Y(card);
+# 优化后：
+explain select * from class left join book on class.card = book.card;
++----+-------------+-------+-------+---------------+------+---------+------+------+-------------+
+| id | select_type | table | type  | possible_keys | key  | key_len | ref  | rows | Extra       |
++----+-------------+-------+-------+---------------+------+---------+------+------+-------------+
+|  1 | SIMPLE      | class | index | NULL          | Y    | 4       | NULL |   20 | Using index |
+|  1 | SIMPLE      | book  | ALL   | NULL          | NULL | NULL    | NULL |   20 |             |
++----+-------------+-------+-------+---------------+------+---------+------+------+-------------+
+# 结论：在右表中建立索引后，type变成ref，且rows有明显的优化。但是在左表中建立索引后，type虽然变成index，可rows无变化。
+# 这是由左连接特性决定的，left join条件用于确定如何从右表搜索行，左边一定都有。所以，右边是关键点，一定需要建立索引！
+# 同理，右连接查询时，左表一定要建立索引！
+
+
+
+
+
+
+
